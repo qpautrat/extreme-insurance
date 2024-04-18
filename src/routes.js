@@ -1,7 +1,7 @@
 var express = require('express')
 var _ = require('lodash')
 
-module.exports = function (sellerService, dispatcher) {
+module.exports = function (sellerService) {
   var router = express.Router()
   var OK = 200
   var BAD_REQUEST = 400
