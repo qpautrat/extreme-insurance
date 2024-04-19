@@ -237,7 +237,40 @@ Countries.prototype = (function () {
   }
 })()
 
+var Covers = function () {}
+
+Covers.prototype = (function () {
+  var covers = {
+    basic: 1,
+    premium: 1.3
+  }
+
+  var Cover = function (name, rate) {
+    this.name = name
+    this.rate = rate
+  }
+
+  Cover.prototype = {
+  }
+
+  var coverMap = _.reduce(covers, function (map, infos, cover) {
+    map[cover] = new Cover(cover, infos)
+    return map
+  }, {})
+
+  return {
+    all: Object.keys(coverMap),
+    randomOne: function () {
+      return _.sample(coverMap).name
+    },
+    getRateOf: function (name) {
+      return coverMap[name].rate
+    }
+  }
+})()
+
 module.exports = {
   Sellers: Sellers,
-  Countries: Countries
+  Countries: Countries,
+  Covers: Covers
 }

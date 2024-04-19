@@ -13,8 +13,11 @@ var config = require('./src/config');
 var configuration = new config.Configuration(CONFIGURATION_FILE);
 var sellers = new repositories.Sellers();
 var sellerService = new services.SellerService(sellers, configuration);
-var orderService = new services.OrderService(configuration);
-var dispatcher = new services.Dispatcher(sellerService, orderService, configuration);
+var countries = new repositories.Countries(configuration);
+var covers = new repositories.Covers();
+var clock = new services.MomentClock();
+var quoteService = new services.QuoteService(countries, covers, clock);
+var dispatcher = new services.Dispatcher(sellerService, quoteService, configuration);
 
 var app = express();
 

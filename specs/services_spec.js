@@ -9,7 +9,7 @@ var http = require('http');
 var Dispatcher = services.Dispatcher;
 var SellerCashUpdater = services.SellerCashUpdater;
 var BadRequest = services.BadRequest;
-var OrderService = services.OrderService;
+var QuoteService = services.QuoteService;
 var SellerService = services.SellerService;
 var Reduction = services.Reduction;
 var Countries = repositories.Countries;
@@ -60,7 +60,7 @@ describe('Seller Service', function() {
         expect(actual.url.toString()).toBe('http://localhost:3000');
     });
 
-    it('should compute seller\'s cash based on the order\'s amount', function() {
+    it('should compute seller\'s cash based on the quote\'s amount', function() {
         var bob = {name: 'bob', cash: 0};
         sellers.save(bob);
 
@@ -155,98 +155,14 @@ describe('Seller Service', function() {
     });
 });
 
-describe('Order Service', function() {
-    var orderService, configuration;
-    var countries;
-
-    beforeEach(function(){
-        configuration = new Configuration();
-        orderService = new OrderService(configuration);
-        countries = new Countries(configuration);
-    });
-
-    it('should send order to seller', function() {
-        spyOn(utils, 'post');
-        var order = {
-            quantity: [1, 2, 3],
-            prices: [12.1, 10, 11],
-            state: "CA"
-        };
-        var cashUpdater = function() {};
-        var onError = function() {};
-
-        orderService.sendOrder({hostname: 'localhost', port: '3000', path: '/test'}, order, cashUpdater, onError);
-
-        expect(utils.post).toHaveBeenCalledWith('localhost', '3000', '/test/order', order, cashUpdater, onError);
-    });
-
-    it('should create an order with maximum 10 items', function() {
-        var order = orderService.createOrder(Reduction.STANDARD);
-
-        expect(order.prices.length).toBeGreaterThan(0);
-        expect(order.prices.length).not.toBeGreaterThan(10);
-        expect(_.every(order.prices, Number)).toBeTruthy();
-        expect(order.quantities.length).toBeGreaterThan(0);
-        expect(order.quantities.length).not.toBeGreaterThan(10);
-        expect(_.every(order.quantities, Number)).toBeTruthy()
-    });
-
-    it('should create orders with countries of Europe', function() {
-        var order = orderService.createOrder(Reduction.STANDARD);
-
-        expect(countries.fromEurope).toContain(order.country);
-    });
-
-    it('should create orders using specific reduction type', function() {
-        expect(orderService.createOrder(Reduction.STANDARD).reduction).toContain(Reduction.STANDARD.name);
-        expect(orderService.createOrder(Reduction.PAY_THE_PRICE).reduction).toContain(Reduction.PAY_THE_PRICE.name);
-        expect(orderService.createOrder(Reduction.HALF_PRICE).reduction).toContain(Reduction.HALF_PRICE.name);
-    });
-
-    it('should calculate the sum of the order using PAY_THE_PRICE reduction', function() {
-        spyOn(configuration, 'all').andReturn({});
-        var order = {prices: [1000, 50], quantities: [1, 2], country: 'IT'};
-
-        var bill = orderService.bill(order, Reduction.PAY_THE_PRICE);
-
-        expect(bill).toEqual({total:  countries.taxRule('IT').applyTax(1000 + 2 * 50)});
-    });
-
-    it('should calculate the sum of the order using STANDARD reduction', function() {
-        spyOn(configuration, 'all').andReturn({});
-        var order = {prices: [1000, 50], quantities: [1, 2], country: 'IT'};
-
-        var bill = orderService.bill(order, Reduction.STANDARD);
-
-        expect(bill).toEqual({total: countries.taxRule('IT').applyTax(1000 + 2 * 50) * (1 - 0.03)});
-    });
-
-    it('should calculate the sum of the order using HALF_PRICE reduction', function() {
-        spyOn(configuration, 'all').andReturn({});
-        var order = {prices: [1000, 50], quantities: [1, 2], country: 'IT'};
-
-        var bill = orderService.bill(order, Reduction.HALF_PRICE);
-
-        expect(bill).toEqual({total: countries.taxRule('IT').applyTax(1000 + 2 * 50) / 2});
-    });
-
-    it('should not validate bill when total field is missing', function() {
-        expect(function(){orderService.validateBill({})}).toThrow('The field \"total\" in the response is missing.');
-    });
-
-    it('should not validate bill when total is not a number', function() {
-        expect(function(){orderService.validateBill({total: 'NaN'})}).toThrow('\"Total\" is not a number.');
-    });
-});
-
 describe('Dispatcher', function() {
-    var dispatcher, orderService, sellerService, configuration;
+    var dispatcher, quoteService, sellerService, configuration;
 
     beforeEach(function(){
         configuration = new Configuration();
         sellerService = new SellerService();
-        orderService = new OrderService(configuration);
-        dispatcher = new Dispatcher(sellerService, orderService, configuration);
+        quoteService = new FakeQuoteService();
+        dispatcher = new Dispatcher(sellerService, quoteService, configuration);
     });
 
     it('should not send request to sellers when active config is set to false', function() {
@@ -260,10 +176,10 @@ describe('Dispatcher', function() {
                 active: false
             }
         );
-        spyOn(dispatcher, 'sendOrderToSellers').andCallFake(function(){});
+        spyOn(dispatcher, 'sendQuoteToSellers').andCallFake(function(){});
 
         expect(dispatcher.startBuying(1)).toEqual(1);
-        expect(dispatcher.sendOrderToSellers).not.toHaveBeenCalled();
+        expect(dispatcher.sendQuoteToSellers).not.toHaveBeenCalled();
     })
 
     it('should load configuration for reductions', function() {
@@ -272,11 +188,11 @@ describe('Dispatcher', function() {
                 active:false
             }
         });
-        spyOn(dispatcher, 'sendOrderToSellers').andCallFake(function(){});
+        spyOn(dispatcher, 'sendQuoteToSellers').andCallFake(function(){});
 
         dispatcher.startBuying(1);
 
-        expect(dispatcher.sendOrderToSellers).toHaveBeenCalledWith(Reduction.HALF_PRICE, 1, false);
+        expect(dispatcher.sendQuoteToSellers).toHaveBeenCalledWith(Reduction.HALF_PRICE, 1, false);
     });
 
     it('should broadcast a bad request', function() {
@@ -287,39 +203,39 @@ describe('Dispatcher', function() {
                 period:2
             }
         });
-        spyOn(dispatcher, 'sendOrderToSellers').andCallFake(function(){});
+        spyOn(dispatcher, 'sendQuoteToSellers').andCallFake(function(){});
 
         dispatcher.startBuying(2);
 
-        expect(dispatcher.sendOrderToSellers).toHaveBeenCalledWith(Reduction.HALF_PRICE, 2, true);
+        expect(dispatcher.sendQuoteToSellers).toHaveBeenCalledWith(Reduction.HALF_PRICE, 2, true);
     });
 
-    it('should send the same order to each seller using reduction', function() {
+    it('should send the same quote to each seller using reduction', function() {
         spyOn(configuration, 'all').andReturn({});
         var alice = {name: 'alice', hostname : 'seller', port : '8080', path : '/', cash: 0};
         var bob = {name: 'bob', hostname : 'seller', port : '8081', path : '/', cash: 0};
         spyOn(sellerService, 'addCash');
         spyOn(sellerService, 'allSellers').andReturn([alice, bob]);
-        var order = {prices: [100, 50], quantities: [1, 2], country: 'IT'};
-        spyOn(orderService, 'createOrder').andReturn(order);
-        spyOn(orderService, 'sendOrder');
+        var quote = {prices: [100, 50], quantities: [1, 2], country: 'IT'};
+        spyOn(quoteService, 'create').andReturn(quote);
+        spyOn(quoteService, 'send');
 
-        dispatcher.sendOrderToSellers(Reduction.STANDARD);
+        dispatcher.sendQuoteToSellers(Reduction.STANDARD);
 
-        expect(orderService.createOrder).toHaveBeenCalledWith(Reduction.STANDARD);
-        expect(orderService.sendOrder).toHaveBeenCalledWith(alice, order, jasmine.any(Function), jasmine.any(Function));
-        expect(orderService.sendOrder).toHaveBeenCalledWith(bob, order, jasmine.any(Function), jasmine.any(Function));
+        expect(quoteService.create).toHaveBeenCalledWith(Reduction.STANDARD);
+        expect(quoteService.send).toHaveBeenCalledWith(alice, quote, jasmine.any(Function), jasmine.any(Function));
+        expect(quoteService.send).toHaveBeenCalledWith(bob, quote, jasmine.any(Function), jasmine.any(Function));
     });
 });
 
 describe('Seller\'s cash updater', function() {
-    var sellerCashUpdater, configuration, sellerService, orderService;
+    var sellerCashUpdater, configuration, sellerService, quoteService;
 
     beforeEach(function() {
         configuration = new Configuration();
         sellerService = new SellerService();
-        orderService = new OrderService(configuration);
-        sellerCashUpdater = new SellerCashUpdater(sellerService, orderService);
+        quoteService = new QuoteService(configuration);
+        sellerCashUpdater = new SellerCashUpdater(sellerService, quoteService);
     });
 
     it('should deduct a penalty when the sellers\'s response is neither 200 nor 404', function() {
@@ -383,21 +299,21 @@ describe('BadRequest', function(){
         expect(badRequest.shouldSendBadRequest(7)).toEqual(false);
     });
 
-    it('should randomly corrupt order', function() {
+    it('should randomly corrupt quote', function() {
         spyOn(configuration, 'all').andReturn({badRequest: {
             modes: [1,2,3,4,5,6,7,8,9,10]
         }});
 
-        var order =  {
+        var quote =  {
             "prices":[64.73,29.48,73.49,58.88,46.61,65.4,16.23],
             "quantities":[8,3,10,6,5,9,5],
             "country":"FR",
             "reduction":"STANDARD"
         };
 
-        var corrupted = badRequest.corruptOrder(order);
+        var corrupted = badRequest.corrupt(quote);
 
-        expect(corrupted).not.toEqual(order);
+        expect(corrupted).not.toEqual(quote);
     });
 
     it('should deduct cash if response status is not "bad request"', function() {
@@ -467,3 +383,13 @@ describe('Standard Reduction', function() {
         expect(standardReduction.reductionFor(500)).toBe(0.00);
     });
 });
+
+var FakeQuoteService = function () {}
+
+FakeQuoteService.prototype = (function () {
+    return {
+        create: function () {},
+        send: function () {},
+        bill: function () {}
+    }
+})()

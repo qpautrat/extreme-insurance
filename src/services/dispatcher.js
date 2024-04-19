@@ -17,9 +17,9 @@ BadRequest.prototype = (function () {
       return getConfiguration(this).active && (iteration % getConfiguration(this).period === 0)
     },
 
-    corruptOrder: function (order) {
+    corrupt: function (quote) {
       var mode = _.sample(getConfiguration(this).modes)
-      var copy = _.clone(order)
+      var copy = _.clone(quote)
 
       console.info(colors.blue('corrupt mode ' + mode))
 
@@ -81,9 +81,9 @@ BadRequest.prototype = (function () {
   }
 })()
 
-var SellerCashUpdater = function (_sellerService, _orderService) {
+var SellerCashUpdater = function (_sellerService, quoteService) {
   this.sellerService = _sellerService
-  this.orderService = _orderService
+  this.quoteService = quoteService
 }
 
 SellerCashUpdater.prototype = (function () {
@@ -103,7 +103,7 @@ SellerCashUpdater.prototype = (function () {
 
             try {
               var actualBill = utils.jsonify(sellerResponse)
-              self.orderService.validateBill(actualBill)
+              self.quoteService.validateBill(actualBill)
               self.sellerService.updateCash(seller, expectedBill, actualBill, currentIteration)
             } catch (exception) {
               self.sellerService.notify(seller, { type: 'ERROR', content: exception.message })
@@ -121,13 +121,13 @@ SellerCashUpdater.prototype = (function () {
   }
 })()
 
-var Dispatcher = function (_sellerService, _orderService, _configuration) {
+var Dispatcher = function (_sellerService, quoteService, _configuration) {
   this.sellerService = _sellerService
-  this.orderService = _orderService
+  this.quoteService = quoteService
   this.configuration = _configuration
   this.offlinePenalty = 0
   this.badRequest = new BadRequest(_configuration)
-  this.sellerCashUpdater = new SellerCashUpdater(_sellerService, _orderService)
+  this.sellerCashUpdater = new SellerCashUpdater(_sellerService, quoteService)
 }
 
 Dispatcher.prototype = (function () {
@@ -172,7 +172,7 @@ Dispatcher.prototype = (function () {
     }, intervalInMillis)
   }
 
-  function shouldSendOrders (self) {
+  function shouldSendQuotes (self) {
     const active = getConfiguration(self).active
     return active == null ? true : active
   }
@@ -182,13 +182,13 @@ Dispatcher.prototype = (function () {
   }
 
   return {
-    sendOrderToSellers: function (reduction, currentIteration, badRequest) {
+    sendQuoteToSellers: function (reduction, currentIteration, badRequest) {
       var self = this
-      var order = self.orderService.createOrder(reduction)
-      var expectedBill = self.orderService.bill(order, reduction)
+      var quote = self.quoteService.create(reduction)
+      var expectedBill = self.quoteService.bill(quote, reduction)
 
       if (badRequest) {
-        order = self.badRequest.corruptOrder(order)
+        quote = self.badRequest.corrupt(quote)
       }
 
       _.forEach(self.sellerService.allSellers(), function (seller) {
@@ -202,7 +202,7 @@ Dispatcher.prototype = (function () {
         }
 
         var errorCallback = putSellerOffline(self, seller, currentIteration)
-        self.orderService.sendOrder(seller, order, cashUpdater, errorCallback)
+        self.quoteService.send(seller, quote, cashUpdater, errorCallback)
       })
     },
 
@@ -217,12 +217,12 @@ Dispatcher.prototype = (function () {
         message = message + ' (bad request)'
       }
 
-      if (shouldSendOrders(this)) {
+      if (shouldSendQuotes(this)) {
         console.info(colors.green(message))
-        this.sendOrderToSellers(period.reduction, iteration, badRequest)
+        this.sendQuoteToSellers(period.reduction, iteration, badRequest)
       } else {
         nextIteration = iteration
-        console.info(colors.red('Order dispatching disabled'))
+        console.info(colors.red('Quote dispatching disabled'))
       }
 
       scheduleNextIteration(this, nextIteration, period.shoppingIntervalInMillis)
